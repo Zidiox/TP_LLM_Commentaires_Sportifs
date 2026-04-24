@@ -1,0 +1,23 @@
+# UFC AI Judge — Dépendances Python
+# Installer avec : pip install -r requirements.txt
+
+# --- API & Serveur ---
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+python-multipart==0.0.18
+pydantic==2.10.3
+
+# --- Frontend ---
+streamlit==1.41.1
+plotly==5.24.1
+pandas==2.2.3
+
+# --- Requêtes HTTP ---
+requests==2.32.3
+
+# --- Téléchargement YouTube ---
+# yt-dlp télécharge le flux m4a natif SANS conversion ffmpeg
+yt-dlp>=2025.1.15
+
+# --- Environnement ---
+python-dotenv==1.0.1

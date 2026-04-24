@@ -1,0 +1,37 @@
+# Sécurité — ne jamais versionner
+.env
+
+# Fichiers audio temporaires
+temp/
+*.mp3
+*.m4a
+*.wav
+*.ogg
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Environnements virtuels
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Streamlit
+.streamlit/secrets.toml
