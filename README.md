@@ -12,7 +12,7 @@
 
 ## 📋 Description
 
-**UFC AI Judge** est une application web qui analyse automatiquement un combat UFC à partir d'une simple URL YouTube. Elle télécharge l'audio, le transcrit via Whisper, l'analyse avec un LLM pour extraire les actions clés, puis calcule une note objective pour chaque combattant — le tout affiché dans un dashboard Plotly interactif.
+**UFC AI Judge** est une application web qui analyse automatiquement un combat UFC à partir d'une simple URL YouTube. Elle télécharge l'audio, le transcrit via Whisper, l'analyse avec un LLM pour extraire les actions clés, puis calcule une note objective pour chaque combattant, le tout affiché dans un dashboard interactif.
 
 ### Pipeline de données
 
@@ -20,7 +20,7 @@
 URL YouTube
     │
     ▼  yt-dlp
-Téléchargement audio (MP3)
+Téléchargement audio
     │
     ▼  Groq Whisper Large v3
 Transcription texte
@@ -31,12 +31,12 @@ Transcription texte
 Analyse LLM × N chunks         {fighter, action, category, score}
     │
     ▼  Python (scorer.py)   ──►  Calcul déterministe
-Scoring backend                 Note /10 clamped [0, 10]
+Scoring backend                       Note /10
     │
     ▼  Streamlit + Plotly
 Dashboard interactif
     │
-    └──► Suppression du MP3 temporaire
+    └──► Suppression du fichier audio temporaire
 ```
 
 ---
@@ -45,11 +45,11 @@ Dashboard interactif
 
 - **Transcription automatique** : audio YouTube → texte via Groq Whisper Large v3
 - **Analyse LLM structurée** : extraction d'actions en JSON (frappe, takedown, soumission, défense...)
-- **Scoring Python pur** : note calculée côté serveur, reproductible et explicable
+- **Scoring Python pur** : note calculée côté serveur
 - **Dashboard interactif** : radar, timeline d'évolution des scores, comparaison +/-
 - **Résumé narratif** : commentaire journalistique généré par le LLM
 - **Export** : CSV des actions + JSON complet téléchargeables
-- **Architecture modulaire** : services découplés, facile à étendre
+- **Architecture modulaire** : facile à étendre
 
 ---
 
@@ -64,8 +64,8 @@ ufc-ai-judge/
 │   ├── models.py            # Schémas Pydantic (requêtes/réponses)
 │   │
 │   ├── services/
-│   │   ├── downloader.py    # yt-dlp : YouTube → MP3
-│   │   ├── transcriber.py   # Groq Whisper : MP3 → texte
+│   │   ├── downloader.py    # yt-dlp : YouTube → fichier audio
+│   │   ├── transcriber.py   # Groq Whisper : fichier audio → texte
 │   │   ├── analyzer.py      # Groq LLaMA : texte → JSON actions
 │   │   └── scorer.py        # Python : actions → note /10
 │   │
@@ -75,7 +75,7 @@ ufc-ai-judge/
 ├── frontend/
 │   └── app.py               # Interface Streamlit + graphiques Plotly
 │
-├── temp/                    # Fichiers MP3 temporaires (auto-nettoyé)
+├── temp/                    # Fichiers audio temporaires (auto-nettoyé)
 ├── .env                     # 🔒 Clé API (non versionné)
 ├── .env.example             # Template de configuration
 ├── requirements.txt
@@ -90,7 +90,6 @@ ufc-ai-judge/
 | Outil | Version | Installation |
 |---|---|---|
 | Python | ≥ 3.11 | [python.org](https://python.org) |
-| ffmpeg | toute | `brew install ffmpeg` / `sudo apt install ffmpeg` |
 | Clé API Groq | — | [console.groq.com](https://console.groq.com) (gratuit) |
 
 ---
@@ -100,7 +99,7 @@ ufc-ai-judge/
 ### 1. Cloner le dépôt
 
 ```bash
-git clone https://github.com/votre-user/ufc-ai-judge.git
+git clone https://github.com/Zidiox/TP_LLM_Commentaires_Sportifs.git
 cd ufc-ai-judge
 ```
 
@@ -109,7 +108,7 @@ cd ufc-ai-judge
 ```bash
 python -m venv .venv
 source .venv/bin/activate      # Linux / macOS
-# .venv\Scripts\activate       # Windows
+.venv\Scripts\activate       # Windows
 ```
 
 ### 3. Installer les dépendances
@@ -128,11 +127,7 @@ cp .env.example .env
 
 ### 5. Lancer l'application
 
-```bash
-bash run.sh
-```
-
-Ou manuellement dans deux terminaux séparés :
+Dans deux terminaux séparés :
 
 ```bash
 # Terminal 1 — Backend
@@ -169,7 +164,7 @@ Ouvrez **http://localhost:8501** dans votre navigateur.
 | Takedown subi | **−2** |
 | KO ou soumission subie | **−5** |
 
-**Note finale** = `5.0 + Σ(points × 0.05)`, clampée entre **0** et **10**.
+**Note finale** = `5.0 + Σ(points × 0.05)`, contenue entre **0** et **10**.
 
 ---
 
@@ -194,26 +189,15 @@ curl -X POST http://localhost:8000/analyze \
   }'
 ```
 
-Documentation interactive disponible sur **http://localhost:8000/docs**
+Swagger disponible sur **http://localhost:8000/docs**
 
 ---
 
 ## 🔒 Sécurité
 
-- La clé API Groq est chargée exclusivement via `.env` (jamais en dur dans le code)
+- La clé API Groq est chargée exclusivement via `.env`
 - Le fichier `.env` est listé dans `.gitignore`
-- Les fichiers MP3 temporaires sont automatiquement supprimés après traitement
-
----
-
-## 🧩 Étendre le projet
-
-Quelques pistes pour aller plus loin (cf. Partie Bonus du TP) :
-
-- **Historique des analyses** : ajouter une base SQLite et un endpoint `GET /history`
-- **Support multi-sports** : paramétrer le barème via l'interface
-- **Approche agentique** : chaîner plusieurs agents spécialisés (collecte → extraction → agrégation → vérification)
-- **Déploiement** : containeriser avec Docker Compose (un service FastAPI + un service Streamlit)
+- Les fichiers audio temporaires sont automatiquement supprimés après traitement
 
 ---
 
@@ -222,5 +206,3 @@ Quelques pistes pour aller plus loin (cf. Partie Bonus du TP) :
 MIT — Voir [LICENSE](LICENSE) pour les détails.
 
 ---
-
-*Projet réalisé dans le cadre du module LLM 03 — Applications LLM-based*
