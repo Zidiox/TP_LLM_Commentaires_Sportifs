@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from backend.config import GROQ_API_KEY
 from backend.models import AnalyzeRequest, AnalyzeResponse, AnalyzeUsage, LLMUsage
-from backend.services.downloader import cleanup_audio, download_audio
+from backend.services.downloader import cleanup_audio, download_audio, get_video_duration
 from backend.services.transcriber import transcribe_audio
 from backend.services.analyzer import analyze_transcript, generate_summary
 from backend.services.scorer import compute_scores
@@ -97,11 +97,12 @@ async def analyze_fight(request: AnalyzeRequest) -> AnalyzeResponse:
     try:
         # ── Étape 1 : Téléchargement ──────────────────────────────────────
         logger.info(f"[1/5] Téléchargement audio : {request.youtube_url}")
+        video_duration = get_video_duration(request.youtube_url)
         audio_path = download_audio(request.youtube_url)
 
         # ── Étape 2 : Transcription ───────────────────────────────────────
         logger.info("[2/5] Transcription Whisper en cours...")
-        transcript = transcribe_audio(audio_path)
+        transcript, transcript_segments = transcribe_audio(audio_path)
         word_count = len(transcript.split())
 
         if not transcript.strip():
@@ -147,7 +148,9 @@ async def analyze_fight(request: AnalyzeRequest) -> AnalyzeResponse:
 
         return AnalyzeResponse(
             success=True,
+            video_duration_seconds=video_duration,
             transcript=transcript,
+            transcript_segments=transcript_segments,
             transcript_word_count=word_count,
             chunks_analyzed=chunks_count,
             all_actions=all_actions,

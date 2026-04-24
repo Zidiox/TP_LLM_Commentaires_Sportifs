@@ -60,3 +60,23 @@ def cleanup_audio(file_path: Path) -> None:
             logger.info(f"Fichier temporaire supprimé : {file_path}")
     except OSError as e:
         logger.warning(f"Impossible de supprimer {file_path} : {e}")
+
+
+def get_video_duration(youtube_url: str) -> int | None:
+    """Retourne la duree de la video en secondes, si disponible."""
+    ydl_opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "skip_download": True,
+    }
+
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(youtube_url, download=False)
+        duration = info.get("duration")
+        if isinstance(duration, (int, float)):
+            return int(duration)
+        return None
+    except Exception as e:
+        logger.warning(f"Impossible de recuperer la duree video : {e}")
+        return None

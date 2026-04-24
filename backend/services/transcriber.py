@@ -26,7 +26,7 @@ MIME_MAP = {
 }
 
 
-def transcribe_audio(audio_path: Path) -> str:
+def transcribe_audio(audio_path: Path) -> tuple[str, list[dict]]:
     """
     Envoie un fichier audio à l'API Whisper de Groq et retourne le texte transcrit.
     Détecte automatiquement le MIME type selon l'extension du fichier.
@@ -35,7 +35,7 @@ def transcribe_audio(audio_path: Path) -> str:
         audio_path: Chemin vers le fichier audio à transcrire (m4a, mp3, webm...).
 
     Returns:
-        Texte transcrit et nettoyé.
+        Texte transcrit et nettoyé, plus segments avec timestamps.
 
     Raises:
         RuntimeError: Si l'API retourne une erreur ou si le fichier est inaccessible.
@@ -53,7 +53,7 @@ def transcribe_audio(audio_path: Path) -> str:
             files = {
                 "file": (audio_path.name, audio_file, mime_type),
                 "model": (None, WHISPER_MODEL),
-                "response_format": (None, "json"),
+                "response_format": (None, "verbose_json"),
                 "language": (None, "en"),
             }
             response = requests.post(
@@ -68,7 +68,21 @@ def transcribe_audio(audio_path: Path) -> str:
             raw_text = payload.get("text", "")
             cleaned = clean_transcript(raw_text)
             logger.info(f"Transcription réussie : {len(cleaned.split())} mots")
-            return cleaned
+            segments = payload.get("segments", [])
+            if not isinstance(segments, list):
+                segments = []
+            normalized_segments = []
+            for segment in segments:
+                if not isinstance(segment, dict):
+                    continue
+                normalized_segments.append(
+                    {
+                        "start": float(segment.get("start", 0.0) or 0.0),
+                        "end": float(segment.get("end", 0.0) or 0.0),
+                        "text": str(segment.get("text", "") or ""),
+                    }
+                )
+            return cleaned, normalized_segments
         else:
             error_msg = response.json().get("error", {}).get("message", response.text)
             raise RuntimeError(f"Erreur API Whisper ({response.status_code}) : {error_msg}")

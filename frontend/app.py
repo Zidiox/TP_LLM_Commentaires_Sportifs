@@ -6,12 +6,15 @@ Lance avec : streamlit run frontend/app.py
 
 import time
 import json
+import re
+import difflib
 
 import requests
 import streamlit as st
 import plotly.graph_objects as go
 import plotly.express as px
 import pandas as pd
+import streamlit.components.v1 as components
 
 # ---------------------------------------------------------------------------
 # Configuration de la page
@@ -270,6 +273,12 @@ POSITIVE_CATS = {"ko", "submission", "takedown", "strike", "defense"}
 
 if "last_result" not in st.session_state:
     st.session_state["last_result"] = None
+if "last_fighter_1" not in st.session_state:
+    st.session_state["last_fighter_1"] = None
+if "last_fighter_2" not in st.session_state:
+    st.session_state["last_fighter_2"] = None
+if "last_youtube_url" not in st.session_state:
+    st.session_state["last_youtube_url"] = None
 
 
 # ---------------------------------------------------------------------------
@@ -315,6 +324,308 @@ def render_llm_usage(usage: dict, title: str) -> None:
     col2.metric("Completion tokens", usage.get("completion_tokens", 0))
     col3.metric("Total tokens", usage.get("total_tokens", 0))
     col4.metric("Requetes", usage.get("requests", 0))
+
+
+def render_analysis_result(result: dict, fighter_1: str, fighter_2: str, youtube_url: str) -> None:
+    stats = result.get("fighter_stats", [])
+    actions = result.get("all_actions", [])
+
+    # ── Scores finaux ──────────────────────────────────────────────
+    st.markdown('<div class="section-title">VERDICT FINAL</div>', unsafe_allow_html=True)
+
+    col1, col2 = st.columns(2)
+    for col, s in zip([col1, col2], stats):
+        with col:
+            st.markdown(
+                f"""
+                <div class="score-card">
+                    <div class="fighter-name">{s['name']}</div>
+                    <div class="score-value">{s['final_score']}</div>
+                    <div class="score-label">/ 10</div>
+                    <div style="margin-top: 0.75rem;">
+                        <span class="stat-badge">+ <span>{s['total_positive_points']} pts</span></span>
+                        <span class="stat-badge">- <span>{s['total_negative_points']} pts</span></span>
+                        <span class="stat-badge">Actions <span>{len([a for a in actions if s['name'].split()[-1].lower() in a['fighter'].lower()])}</span></span>
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+    # ── Graphique comparaison scores ───────────────────────────────
+    st.plotly_chart(
+        render_score_comparison(stats),
+        use_container_width=True,
+        config={"displayModeBar": False},
+    )
+
+    # ── Résumé narratif ────────────────────────────────────────────
+    if result.get("summary"):
+        st.markdown('<div class="section-title">RÉSUMÉ DU COMBAT</div>', unsafe_allow_html=True)
+        st.markdown(
+            f'<div class="summary-box">{result["summary"]}</div>',
+            unsafe_allow_html=True,
+        )
+
+    # ── Video + marqueurs ─────────────────────────────────────────
+    st.markdown('<div class="section-title">VIDEO + MARQUEURS</div>', unsafe_allow_html=True)
+    video_id = extract_youtube_id(youtube_url)
+    video_duration = result.get("video_duration_seconds")
+    segments = result.get("transcript_segments", [])
+    markers = build_action_markers(actions, segments, video_duration)
+    render_video_with_markers(video_id, markers, video_duration)
+
+    st.markdown('<hr class="red-divider">', unsafe_allow_html=True)
+
+    # ── Graphiques d'analyse ───────────────────────────────────────
+    st.markdown('<div class="section-title">ANALYSE DÉTAILLÉE</div>', unsafe_allow_html=True)
+
+    chart_col1, chart_col2 = st.columns(2)
+
+    with chart_col1:
+        st.markdown(
+            '<p style="font-family: Inter; font-size: 0.7rem; letter-spacing: 0.15em; '
+            'text-transform: uppercase; color: #555; margin-bottom: 0.5rem;">RADAR DES ACTIONS</p>',
+            unsafe_allow_html=True,
+        )
+        st.plotly_chart(
+            render_actions_radar(stats),
+            use_container_width=True,
+            config={"displayModeBar": False},
+        )
+
+    with chart_col2:
+        st.markdown(
+            '<p style="font-family: Inter; font-size: 0.7rem; letter-spacing: 0.15em; '
+            'text-transform: uppercase; color: #555; margin-bottom: 0.5rem;">POINTS +/-</p>',
+            unsafe_allow_html=True,
+        )
+        st.plotly_chart(
+            render_action_breakdown(stats),
+            use_container_width=True,
+            config={"displayModeBar": False},
+        )
+
+    # ── Évolution du score ─────────────────────────────────────────
+    if actions:
+        st.markdown(
+            '<p style="font-family: Inter; font-size: 0.7rem; letter-spacing: 0.15em; '
+            'text-transform: uppercase; color: #555; margin-bottom: 0.5rem;">ÉVOLUTION DU SCORE EN TEMPS RÉEL</p>',
+            unsafe_allow_html=True,
+        )
+        st.plotly_chart(
+            render_actions_timeline(actions, fighter_1, fighter_2),
+            use_container_width=True,
+            config={"displayModeBar": False},
+        )
+
+    st.markdown('<hr class="red-divider">', unsafe_allow_html=True)
+
+    # ── Métadonnées ────────────────────────────────────────────────
+    meta_col1, meta_col2, meta_col3 = st.columns(3)
+    with meta_col1:
+        st.metric("Mots transcrits", f"{result['transcript_word_count']:,}")
+    with meta_col2:
+        st.metric("Chunks analysés", result["chunks_analyzed"])
+    with meta_col3:
+        st.metric("Actions détectées", len(actions))
+
+    # ── Transcription ──────────────────────────────────────────────
+    with st.expander("📄 Voir la transcription complète"):
+        st.markdown(
+            f'<div class="transcript-box">{result["transcript"]}</div>',
+            unsafe_allow_html=True,
+        )
+
+    # ── Détail JSON des actions ────────────────────────────────────
+    with st.expander("🔎 Détail de toutes les actions détectées"):
+        df = pd.DataFrame(actions)
+        if not df.empty:
+            df["category"] = df["category"].map(
+                lambda c: CATEGORY_LABELS.get(c, c)
+            )
+            df.columns = ["Combattant", "Action", "Catégorie", "Points"]
+            st.dataframe(
+                df,
+                use_container_width=True,
+                hide_index=True,
+            )
+
+            # Bouton export CSV
+            csv = df.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                label="⬇️ Exporter en CSV",
+                data=csv,
+                file_name=f"ufc_analysis_{fighter_1.split()[-1]}_{fighter_2.split()[-1]}.csv",
+                mime="text/csv",
+            )
+
+    # ── Export JSON complet ────────────────────────────────────────
+    with st.expander("📦 Export JSON complet"):
+        st.download_button(
+            label="⬇️ Télécharger le JSON complet",
+            data=json.dumps(result, indent=2, ensure_ascii=False),
+            file_name=f"ufc_analysis_{fighter_1.split()[-1]}_{fighter_2.split()[-1]}.json",
+            mime="application/json",
+        )
+
+
+def extract_youtube_id(url: str) -> str | None:
+    if "youtu.be/" in url:
+        return url.split("youtu.be/")[-1].split("?")[0].strip()
+    match = re.search(r"[?&]v=([^&]+)", url)
+    if match:
+        return match.group(1).strip()
+    return None
+
+
+def _normalize_text(text: str) -> str:
+    return re.sub(r"[^a-z0-9 ]+", " ", text.lower()).strip()
+
+
+def _best_segment_match(action_text: str, segments: list[dict]) -> dict | None:
+    if not action_text or not segments:
+        return None
+
+    target = _normalize_text(action_text)
+    if not target:
+        return None
+
+    best_score = 0.0
+    best_segment = None
+
+    for segment in segments:
+        seg_text = _normalize_text(segment.get("text", ""))
+        if not seg_text:
+            continue
+        score = difflib.SequenceMatcher(None, target, seg_text).ratio()
+        if score > best_score:
+            best_score = score
+            best_segment = segment
+
+    if best_score < 0.15:
+        return None
+    return best_segment
+
+
+def build_action_markers(actions: list[dict], segments: list[dict], duration: int | None) -> list[dict]:
+    if not actions:
+        return []
+    if not segments:
+        return []
+
+    markers: list[dict] = []
+    last_index = max(len(actions) - 1, 1)
+    seg_last_index = max(len(segments) - 1, 1)
+
+    for i, action in enumerate(actions):
+        match = _best_segment_match(action.get("action", ""), segments)
+        if match is None:
+            ratio = i / last_index
+            seg_index = int(round(ratio * seg_last_index))
+            match = segments[seg_index]
+
+        start = match.get("start", 0)
+        time_sec = int(round(float(start)))
+        if duration is not None and duration > 0:
+            time_sec = max(0, min(int(duration), time_sec))
+
+        fighter = action.get("fighter", "").split()
+        fighter_short = fighter[-1] if fighter else "F"
+        label = f"{fighter_short}: {action.get('action', '')}"
+        markers.append({"time": time_sec, "label": label[:60]})
+
+    return markers
+
+
+def render_video_with_markers(video_id: str, markers: list[dict], duration: int | None) -> None:
+    if not video_id:
+        st.info("Impossible d'extraire l'ID YouTube pour le player.")
+        return
+
+    if not markers:
+        st.info("Aucun marqueur detecte dans la transcription.")
+        return
+
+    if duration is None and markers:
+        duration = max(m["time"] for m in markers)
+
+    duration = duration or 1
+    markers_json = json.dumps(markers)
+
+    html = f"""
+    <div style="background:#0f0f18;border:1px solid #1e1e2e;border-radius:10px;padding:12px;">
+      <div id="yt-player" style="width:100%;height:220px;"></div>
+      <div id="timeline" style="position:relative;height:28px;margin-top:10px;background:#151523;border-radius:6px;border:1px solid #2a2a3a;"></div>
+      <div id="marker-list" style="margin-top:10px;max-height:140px;overflow:auto;font-family:Inter, sans-serif;font-size:12px;color:#aaa;"></div>
+    </div>
+
+    <script>
+      const markers = {markers_json};
+      const duration = {duration};
+      let player;
+
+      function formatTime(sec) {{
+        const h = Math.floor(sec / 3600);
+        const m = Math.floor((sec % 3600) / 60);
+        const s = Math.floor(sec % 60);
+        if (h > 0) return `${{h}}:${{String(m).padStart(2,'0')}}:${{String(s).padStart(2,'0')}}`;
+        return `${{m}}:${{String(s).padStart(2,'0')}}`;
+      }}
+
+      function buildTimeline() {{
+        const timeline = document.getElementById('timeline');
+        const list = document.getElementById('marker-list');
+        timeline.innerHTML = '';
+        list.innerHTML = '';
+
+        markers.forEach((m, idx) => {{
+          const left = Math.min(100, Math.max(0, (m.time / duration) * 100));
+          const dot = document.createElement('div');
+          dot.style.position = 'absolute';
+          dot.style.left = `calc(${{left}}% - 4px)`;
+          dot.style.top = '7px';
+          dot.style.width = '8px';
+          dot.style.height = '8px';
+          dot.style.background = '#e53935';
+          dot.style.borderRadius = '50%';
+          dot.style.cursor = 'pointer';
+          dot.title = `${{formatTime(m.time)}} - ${{m.label}}`;
+          dot.onclick = () => {{
+            if (player) player.seekTo(m.time, true);
+          }};
+          timeline.appendChild(dot);
+
+          const row = document.createElement('div');
+          row.style.padding = '4px 0';
+          row.style.cursor = 'pointer';
+          row.innerText = `${{formatTime(m.time)}}  -  ${{m.label}}`;
+          row.onclick = () => {{
+            if (player) player.seekTo(m.time, true);
+          }};
+          list.appendChild(row);
+        }});
+      }}
+
+      var tag = document.createElement('script');
+      tag.src = "https://www.youtube.com/iframe_api";
+      var firstScriptTag = document.getElementsByTagName('script')[0];
+      firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+
+      function onYouTubeIframeAPIReady() {{
+        player = new YT.Player('yt-player', {{
+          height: '220',
+          width: '100%',
+          videoId: '{video_id}',
+          playerVars: {{ 'playsinline': 1, 'rel': 0 }},
+          events: {{ 'onReady': buildTimeline }}
+        }});
+      }}
+      window.onYouTubeIframeAPIReady = onYouTubeIframeAPIReady;
+    </script>
+    """
+
+    components.html(html, height=420)
 
 
 
@@ -629,6 +940,9 @@ if page == "Analyse":
 
                 result = call_analyze_api(youtube_url, fighter_1, fighter_2)
                 st.session_state["last_result"] = result
+                st.session_state["last_fighter_1"] = fighter_1
+                st.session_state["last_fighter_2"] = fighter_2
+                st.session_state["last_youtube_url"] = youtube_url
 
                 progress_bar.progress(100)
                 status_placeholder.success("✅ Analyse terminée !")
@@ -640,139 +954,7 @@ if page == "Analyse":
                 # Affichage des résultats
                 # ----------------------------------------------------------------
 
-                stats = result.get("fighter_stats", [])
-                actions = result.get("all_actions", [])
-
-                # ── Scores finaux ──────────────────────────────────────────────
-                st.markdown('<div class="section-title">VERDICT FINAL</div>', unsafe_allow_html=True)
-
-                col1, col2 = st.columns(2)
-                for col, s in zip([col1, col2], stats):
-                    with col:
-                        st.markdown(
-                            f"""
-                            <div class="score-card">
-                                <div class="fighter-name">{s['name']}</div>
-                                <div class="score-value">{s['final_score']}</div>
-                                <div class="score-label">/ 10</div>
-                                <div style="margin-top: 0.75rem;">
-                                    <span class="stat-badge">+ <span>{s['total_positive_points']} pts</span></span>
-                                    <span class="stat-badge">- <span>{s['total_negative_points']} pts</span></span>
-                                    <span class="stat-badge">Actions <span>{len([a for a in actions if s['name'].split()[-1].lower() in a['fighter'].lower()])}</span></span>
-                                </div>
-                            </div>
-                            """,
-                            unsafe_allow_html=True,
-                        )
-
-                # ── Graphique comparaison scores ───────────────────────────────
-                st.plotly_chart(
-                    render_score_comparison(stats),
-                    use_container_width=True,
-                    config={"displayModeBar": False},
-                )
-
-                # ── Résumé narratif ────────────────────────────────────────────
-                if result.get("summary"):
-                    st.markdown('<div class="section-title">RÉSUMÉ DU COMBAT</div>', unsafe_allow_html=True)
-                    st.markdown(
-                        f'<div class="summary-box">{result["summary"]}</div>',
-                        unsafe_allow_html=True,
-                    )
-
-                st.markdown('<hr class="red-divider">', unsafe_allow_html=True)
-
-                # ── Graphiques d'analyse ───────────────────────────────────────
-                st.markdown('<div class="section-title">ANALYSE DÉTAILLÉE</div>', unsafe_allow_html=True)
-
-                chart_col1, chart_col2 = st.columns(2)
-
-                with chart_col1:
-                    st.markdown(
-                        '<p style="font-family: Inter; font-size: 0.7rem; letter-spacing: 0.15em; '
-                        'text-transform: uppercase; color: #555; margin-bottom: 0.5rem;">RADAR DES ACTIONS</p>',
-                        unsafe_allow_html=True,
-                    )
-                    st.plotly_chart(
-                        render_actions_radar(stats),
-                        use_container_width=True,
-                        config={"displayModeBar": False},
-                    )
-
-                with chart_col2:
-                    st.markdown(
-                        '<p style="font-family: Inter; font-size: 0.7rem; letter-spacing: 0.15em; '
-                        'text-transform: uppercase; color: #555; margin-bottom: 0.5rem;">POINTS +/-</p>',
-                        unsafe_allow_html=True,
-                    )
-                    st.plotly_chart(
-                        render_action_breakdown(stats),
-                        use_container_width=True,
-                        config={"displayModeBar": False},
-                    )
-
-                # ── Évolution du score ─────────────────────────────────────────
-                if actions:
-                    st.markdown(
-                        '<p style="font-family: Inter; font-size: 0.7rem; letter-spacing: 0.15em; '
-                        'text-transform: uppercase; color: #555; margin-bottom: 0.5rem;">ÉVOLUTION DU SCORE EN TEMPS RÉEL</p>',
-                        unsafe_allow_html=True,
-                    )
-                    st.plotly_chart(
-                        render_actions_timeline(actions, fighter_1, fighter_2),
-                        use_container_width=True,
-                        config={"displayModeBar": False},
-                    )
-
-                st.markdown('<hr class="red-divider">', unsafe_allow_html=True)
-
-                # ── Métadonnées ────────────────────────────────────────────────
-                meta_col1, meta_col2, meta_col3 = st.columns(3)
-                with meta_col1:
-                    st.metric("Mots transcrits", f"{result['transcript_word_count']:,}")
-                with meta_col2:
-                    st.metric("Chunks analysés", result["chunks_analyzed"])
-                with meta_col3:
-                    st.metric("Actions détectées", len(actions))
-
-                # ── Transcription ──────────────────────────────────────────────
-                with st.expander("📄 Voir la transcription complète"):
-                    st.markdown(
-                        f'<div class="transcript-box">{result["transcript"]}</div>',
-                        unsafe_allow_html=True,
-                    )
-
-                # ── Détail JSON des actions ────────────────────────────────────
-                with st.expander("🔎 Détail de toutes les actions détectées"):
-                    df = pd.DataFrame(actions)
-                    if not df.empty:
-                        df["category"] = df["category"].map(
-                            lambda c: CATEGORY_LABELS.get(c, c)
-                        )
-                        df.columns = ["Combattant", "Action", "Catégorie", "Points"]
-                        st.dataframe(
-                            df,
-                            use_container_width=True,
-                            hide_index=True,
-                        )
-
-                        # Bouton export CSV
-                        csv = df.to_csv(index=False).encode("utf-8")
-                        st.download_button(
-                            label="⬇️ Exporter en CSV",
-                            data=csv,
-                            file_name=f"ufc_analysis_{fighter_1.split()[-1]}_{fighter_2.split()[-1]}.csv",
-                            mime="text/csv",
-                        )
-
-                # ── Export JSON complet ────────────────────────────────────────
-                with st.expander("📦 Export JSON complet"):
-                    st.download_button(
-                        label="⬇️ Télécharger le JSON complet",
-                        data=json.dumps(result, indent=2, ensure_ascii=False),
-                        file_name=f"ufc_analysis_{fighter_1.split()[-1]}_{fighter_2.split()[-1]}.json",
-                        mime="application/json",
-                    )
+                render_analysis_result(result, fighter_1, fighter_2, youtube_url)
 
             except requests.exceptions.ConnectionError:
                 status_placeholder.empty()
@@ -796,23 +978,36 @@ if page == "Analyse":
                 st.error(f"❌ Erreur inattendue : {e}")
 
     else:
-        # ── État initial (pas encore d'analyse) ───────────────────────────────
-        st.markdown(
-            """
-            <div style="text-align: center; padding: 3rem 1rem; color: #333;">
-                <div style="font-size: 4rem; margin-bottom: 1rem;">🥊</div>
-                <div style="font-family: Bebas Neue, sans-serif; font-size: 1.5rem;
-                            letter-spacing: 0.1em; color: #444;">
-                    ENTREZ UNE URL YOUTUBE ET LANCEZ L'ANALYSE
+        last_result = st.session_state.get("last_result")
+        last_fighter_1 = st.session_state.get("last_fighter_1")
+        last_fighter_2 = st.session_state.get("last_fighter_2")
+        last_youtube_url = st.session_state.get("last_youtube_url")
+
+        if last_result and last_fighter_1 and last_fighter_2 and last_youtube_url:
+            render_analysis_result(
+                last_result,
+                last_fighter_1,
+                last_fighter_2,
+                last_youtube_url,
+            )
+        else:
+            # ── État initial (pas encore d'analyse) ───────────────────────────────
+            st.markdown(
+                """
+                <div style="text-align: center; padding: 3rem 1rem; color: #333;">
+                    <div style="font-size: 4rem; margin-bottom: 1rem;">🥊</div>
+                    <div style="font-family: Bebas Neue, sans-serif; font-size: 1.5rem;
+                                letter-spacing: 0.1em; color: #444;">
+                        ENTREZ UNE URL YOUTUBE ET LANCEZ L'ANALYSE
+                    </div>
+                    <div style="font-family: Inter, sans-serif; font-size: 0.8rem;
+                                color: #333; margin-top: 0.5rem;">
+                        Le pipeline complet prend généralement 1 à 3 minutes selon la durée de la vidéo.
+                    </div>
                 </div>
-                <div style="font-family: Inter, sans-serif; font-size: 0.8rem;
-                            color: #333; margin-top: 0.5rem;">
-                    Le pipeline complet prend généralement 1 à 3 minutes selon la durée de la vidéo.
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+                """,
+                unsafe_allow_html=True,
+            )
 else:
     result = st.session_state.get("last_result")
     st.markdown('<div class="section-title">MONITEUR DE CONSOMMATION</div>', unsafe_allow_html=True)

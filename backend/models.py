@@ -53,6 +53,13 @@ class FighterStats(BaseModel):
     actions_by_category: dict[str, int]  # {"takedown": 3, "strike": 7, ...}
 
 
+class TranscriptSegment(BaseModel):
+    """Segment transcrit avec timestamps."""
+    start: float
+    end: float
+    text: str
+
+
 class LLMUsage(BaseModel):
     """Usage tokens for a set of LLM requests."""
     prompt_tokens: int = 0
@@ -71,7 +78,9 @@ class AnalyzeUsage(BaseModel):
 class AnalyzeResponse(BaseModel):
     """Réponse complète renvoyée au frontend après une analyse."""
     success: bool
+    video_duration_seconds: Optional[int] = None
     transcript: str
+    transcript_segments: Optional[list[TranscriptSegment]] = None
     transcript_word_count: int
     chunks_analyzed: int
     all_actions: list[ActionDetail]
