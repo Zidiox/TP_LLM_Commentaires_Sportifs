@@ -85,7 +85,6 @@ ufc-ai-judge/
 ├── .env                     # 🔒 Clé API (non versionné)
 ├── .env.example             # Template de configuration
 ├── requirements.txt
-├── run.sh                   # Lance backend + frontend
 └── README.md
 ```
 
