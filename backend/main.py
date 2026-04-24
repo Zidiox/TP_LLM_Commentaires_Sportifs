@@ -12,7 +12,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.config import GROQ_API_KEY
-from backend.models import AnalyzeRequest, AnalyzeResponse
+from backend.models import AnalyzeRequest, AnalyzeResponse, AnalyzeUsage, LLMUsage
 from backend.services.downloader import cleanup_audio, download_audio
 from backend.services.transcriber import transcribe_audio
 from backend.services.analyzer import analyze_transcript, generate_summary
@@ -112,7 +112,7 @@ async def analyze_fight(request: AnalyzeRequest) -> AnalyzeResponse:
 
         # ── Étape 3 : Analyse LLM ─────────────────────────────────────────
         logger.info("[3/5] Analyse LLM par chunks...")
-        all_actions, chunks_count = analyze_transcript(
+        all_actions, chunks_count, llm_usage_analysis = analyze_transcript(
             transcript,
             fighter_1=request.fighter_1,
             fighter_2=request.fighter_2,
@@ -128,7 +128,22 @@ async def analyze_fight(request: AnalyzeRequest) -> AnalyzeResponse:
 
         # ── Étape 5 : Résumé narratif ─────────────────────────────────────
         logger.info("[5/5] Génération du résumé...")
-        summary = generate_summary(transcript, request.fighter_1, request.fighter_2)
+        summary, llm_usage_summary = generate_summary(
+            transcript,
+            request.fighter_1,
+            request.fighter_2,
+        )
+
+        llm_usage_total = {
+            "prompt_tokens": llm_usage_analysis.get("prompt_tokens", 0)
+            + llm_usage_summary.get("prompt_tokens", 0),
+            "completion_tokens": llm_usage_analysis.get("completion_tokens", 0)
+            + llm_usage_summary.get("completion_tokens", 0),
+            "total_tokens": llm_usage_analysis.get("total_tokens", 0)
+            + llm_usage_summary.get("total_tokens", 0),
+            "requests": llm_usage_analysis.get("requests", 0)
+            + llm_usage_summary.get("requests", 0),
+        }
 
         return AnalyzeResponse(
             success=True,
@@ -138,6 +153,11 @@ async def analyze_fight(request: AnalyzeRequest) -> AnalyzeResponse:
             all_actions=all_actions,
             fighter_stats=fighter_stats,
             summary=summary,
+            usage=AnalyzeUsage(
+                llm_analysis=LLMUsage(**llm_usage_analysis),
+                llm_summary=LLMUsage(**llm_usage_summary),
+                llm_total=LLMUsage(**llm_usage_total),
+            ),
         )
 
     except HTTPException:

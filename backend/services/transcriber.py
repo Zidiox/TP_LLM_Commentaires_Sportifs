@@ -64,7 +64,8 @@ def transcribe_audio(audio_path: Path) -> str:
             )
 
         if response.status_code == 200:
-            raw_text = response.json().get("text", "")
+            payload = response.json()
+            raw_text = payload.get("text", "")
             cleaned = clean_transcript(raw_text)
             logger.info(f"Transcription réussie : {len(cleaned.split())} mots")
             return cleaned

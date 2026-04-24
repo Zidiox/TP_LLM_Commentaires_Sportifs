@@ -53,6 +53,21 @@ class FighterStats(BaseModel):
     actions_by_category: dict[str, int]  # {"takedown": 3, "strike": 7, ...}
 
 
+class LLMUsage(BaseModel):
+    """Usage tokens for a set of LLM requests."""
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+    requests: int = 0
+
+
+class AnalyzeUsage(BaseModel):
+    """Usage breakdown for LLM steps."""
+    llm_analysis: LLMUsage
+    llm_summary: LLMUsage
+    llm_total: LLMUsage
+
+
 class AnalyzeResponse(BaseModel):
     """Réponse complète renvoyée au frontend après une analyse."""
     success: bool
@@ -62,4 +77,5 @@ class AnalyzeResponse(BaseModel):
     all_actions: list[ActionDetail]
     fighter_stats: list[FighterStats]
     summary: Optional[str] = None
+    usage: Optional[AnalyzeUsage] = None
     error: Optional[str] = None

@@ -25,7 +25,35 @@ logger = logging.getLogger(__name__)
 RATE_LIMIT_DELAY: float = 1.5
 
 
-def _call_llm(chunk: str, system_prompt: str) -> list[ActionDetail]:
+def _empty_usage() -> dict[str, int]:
+    return {
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "requests": 0,
+    }
+
+
+def _merge_usage(total: dict[str, int], part: dict[str, int]) -> dict[str, int]:
+    return {
+        "prompt_tokens": total.get("prompt_tokens", 0) + part.get("prompt_tokens", 0),
+        "completion_tokens": total.get("completion_tokens", 0) + part.get("completion_tokens", 0),
+        "total_tokens": total.get("total_tokens", 0) + part.get("total_tokens", 0),
+        "requests": total.get("requests", 0) + part.get("requests", 0),
+    }
+
+
+def _extract_usage(payload: dict) -> dict[str, int]:
+    usage = payload.get("usage") or {}
+    return {
+        "prompt_tokens": int(usage.get("prompt_tokens", 0) or 0),
+        "completion_tokens": int(usage.get("completion_tokens", 0) or 0),
+        "total_tokens": int(usage.get("total_tokens", 0) or 0),
+        "requests": 1,
+    }
+
+
+def _call_llm(chunk: str, system_prompt: str) -> tuple[list[ActionDetail], dict[str, int]]:
     """
     Appelle le LLM Groq sur un chunk de texte et retourne les actions détectées.
 
@@ -55,9 +83,11 @@ def _call_llm(chunk: str, system_prompt: str) -> list[ActionDetail]:
 
         if response.status_code != 200:
             logger.warning(f"LLM API error {response.status_code}: {response.text}")
-            return []
+            return [], _empty_usage()
 
-        raw_content = response.json()["choices"][0]["message"]["content"]
+        payload = response.json()
+        usage = _extract_usage(payload)
+        raw_content = payload["choices"][0]["message"]["content"]
 
         # Nettoyage : supprime les balises markdown ```json ... ``` si présentes
         clean_content = (
@@ -77,21 +107,21 @@ def _call_llm(chunk: str, system_prompt: str) -> list[ActionDetail]:
             except Exception as e:
                 logger.debug(f"Action ignorée (format invalide) : {item} | {e}")
 
-        return actions
+        return actions, usage
 
     except json.JSONDecodeError as e:
         logger.warning(f"Impossible de parser la réponse JSON du LLM : {e}")
-        return []
+        return [], _empty_usage()
     except requests.RequestException as e:
         logger.warning(f"Erreur réseau lors de l'appel LLM : {e}")
-        return []
+        return [], _empty_usage()
 
 
 def analyze_transcript(
     transcript: str,
     fighter_1: str,
     fighter_2: str,
-) -> tuple[list[ActionDetail], int]:
+) -> tuple[list[ActionDetail], int, dict[str, int]]:
     """
     Analyse complète d'une transcription en la découpant en chunks.
 
@@ -111,23 +141,25 @@ def analyze_transcript(
 
     chunks = split_text_into_chunks(transcript)
     all_actions: list[ActionDetail] = []
+    usage_total = _empty_usage()
 
     logger.info(f"Analyse de {len(chunks)} chunks pour {fighter_1} vs {fighter_2}")
 
     for i, chunk in enumerate(chunks):
         logger.debug(f"Chunk {i + 1}/{len(chunks)}")
-        actions = _call_llm(chunk, system_prompt)
+        actions, usage = _call_llm(chunk, system_prompt)
         all_actions.extend(actions)
+        usage_total = _merge_usage(usage_total, usage)
 
         # Pause pour respecter les rate limits Groq (sauf après le dernier chunk)
         if i < len(chunks) - 1:
             time.sleep(RATE_LIMIT_DELAY)
 
     logger.info(f"Total actions détectées : {len(all_actions)}")
-    return all_actions, len(chunks)
+    return all_actions, len(chunks), usage_total
 
 
-def generate_summary(transcript: str, fighter_1: str, fighter_2: str) -> str:
+def generate_summary(transcript: str, fighter_1: str, fighter_2: str) -> tuple[str, dict[str, int]]:
     """
     Demande au LLM de générer un résumé narratif du combat en français.
 
@@ -162,8 +194,11 @@ Réponds uniquement avec le texte du résumé, sans introduction ni conclusion."
     try:
         response = requests.post(GROQ_CHAT_URL, headers=headers, json=payload, timeout=30)
         if response.status_code == 200:
-            return response.json()["choices"][0]["message"]["content"].strip()
-        return "Résumé non disponible."
+            payload_json = response.json()
+            usage = _extract_usage(payload_json)
+            summary = payload_json["choices"][0]["message"]["content"].strip()
+            return summary, usage
+        return "Résumé non disponible.", _empty_usage()
     except Exception as e:
         logger.warning(f"Impossible de générer le résumé : {e}")
-        return "Résumé non disponible."
+        return "Résumé non disponible.", _empty_usage()
