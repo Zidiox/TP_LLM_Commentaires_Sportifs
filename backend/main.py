@@ -149,7 +149,7 @@ async def analyze_fight(request: AnalyzeRequest) -> AnalyzeResponse:
         logger.exception(f"Erreur inattendue : {e}")
         raise HTTPException(status_code=500, detail=f"Erreur interne : {e}")
     finally:
-        # ── Nettoyage : toujours supprimer le MP3 temporaire ──────────────
+        # ── Nettoyage : toujours supprimer le fichier audio temporaire ──────────────
         if audio_path is not None:
             cleanup_audio(audio_path)
             logger.info("Fichier audio temporaire supprimé.")

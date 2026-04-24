@@ -34,7 +34,7 @@ def download_audio(youtube_url: str) -> Path:
         "quiet": False,   # Logs visibles pour debugger
         "no_warnings": False,
         "noplaylist": True,
-        "postprocessors": [],  # Pas de ffmpeg
+        "postprocessors": [],
     }
 
     try:
