@@ -100,7 +100,7 @@ ufc-ai-judge/
 
 ```bash
 git clone https://github.com/Zidiox/TP_LLM_Commentaires_Sportifs.git
-cd ufc-ai-judge
+cd TP_LLM_Commentaires_Sportifs
 ```
 
 ### 2. Créer un environnement virtuel
