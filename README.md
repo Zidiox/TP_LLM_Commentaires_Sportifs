@@ -52,6 +52,8 @@ Dashboard interactif
 - **Scoring Python pur** : note calculée côté serveur
 - **Dashboard interactif** : radar, timeline d'évolution des scores, comparaison +/-
 - **Résumé narratif** : commentaire journalistique généré par le LLM
+- **Moniteur LLM** : suivi des tokens (analyse, résumé, total) dans l'interface
+- **Mini-player YouTube** : lecture intégrée avec marqueurs d'actions cliquables
 - **Export** : CSV des actions + JSON complet téléchargeables
 - **Architecture modulaire** : facile à étendre
 
