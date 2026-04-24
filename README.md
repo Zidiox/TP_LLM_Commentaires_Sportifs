@@ -10,6 +10,10 @@
 
 ---
 
+**Contributeurs :** Guillaume GUTHIER, Hippolyte GINESTE , Willen AMICHE
+
+---
+
 ## 📋 Description
 
 **UFC AI Judge** est une application web qui analyse automatiquement un combat UFC à partir d'une simple URL YouTube. Elle télécharge l'audio, le transcrit via Whisper, l'analyse avec un LLM pour extraire les actions clés, puis calcule une note objective pour chaque combattant, le tout affiché dans un dashboard interactif.
@@ -100,7 +104,7 @@ ufc-ai-judge/
 
 ```bash
 git clone https://github.com/Zidiox/TP_LLM_Commentaires_Sportifs.git
-cd TP_LLM_Commentaires_Sportifs
+cd ufc-ai-judge
 ```
 
 ### 2. Créer un environnement virtuel
